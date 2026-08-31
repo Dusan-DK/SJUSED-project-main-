@@ -1,16 +1,27 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { rememberAvatarName } from '../lib/avatarName';
 
 function NameAvatar() {
   const [avatarName, setAvatarName] = useState('');
   const navigate = useNavigate();
 
   function handleContinue() {
-    // Pass the name to the quiz via navigation state.
-    // The quiz reads it with useLocation() and sends it in the final payload.
-    // (Note: navigation state is lost on a hard refresh — fine here, since the
-    //  name only needs to survive the click-through to the quiz.)
-    navigate('/quiz', { state: { avatarName } });
+    const trimmed = avatarName.trim();
+    if (!trimmed) return;
+
+    /*
+      Stored in sessionStorage as well as router state. Router state alone is
+      lost on a hard refresh, which used to leave the quiz with no name to
+      submit — see lib/avatarName.js.
+    */
+    rememberAvatarName(trimmed);
+    navigate('/quiz', { state: { avatarName: trimmed } });
+  }
+
+  // Enter should submit, like any single-field form.
+  function handleKeyDown(e) {
+    if (e.key === 'Enter') handleContinue();
   }
 
   return (
@@ -36,6 +47,8 @@ function NameAvatar() {
             type="text"
             value={avatarName}
             onChange={(e) => setAvatarName(e.target.value)}
+            onKeyDown={handleKeyDown}
+            maxLength={40}
             placeholder="Give them a name…"
             className="mt-4 w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3.5 text-slate-900 placeholder:text-slate-400 transition focus:border-amber-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-400/40"
           />

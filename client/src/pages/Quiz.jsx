@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { useLocation } from 'react-router-dom'
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, Navigate } from 'react-router-dom';
+import { apiSend } from '../lib/api';
+import { recallAvatarName, forgetAvatarName } from '../lib/avatarName';
 /*
   DATA SHAPE — the important change:
   Options used to be plain strings ('oldMoney'). Now each option is an object:
@@ -88,10 +89,18 @@ function Quiz() {
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [answers, setAnswers] = useState({});
   const [selectedStyles, setSelectedStyles] = useState([]);
-  
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState(null);
+
   const navigate = useNavigate();
   const location = useLocation();
-  const avatarName = location.state?.avatarName;
+
+  /*
+    Router state first (the normal click-through), sessionStorage as the
+    fallback that survives a refresh. Previously this read router state only,
+    so reloading mid-quiz silently lost the name.
+  */
+  const avatarName = location.state?.avatarName ?? recallAvatarName();
 
   const question = questions[currentQuestion];
   const isLast = currentQuestion === questions.length - 1;
@@ -117,6 +126,9 @@ function Quiz() {
   }
 
   async function handleAnswer(answerValue) {
+    // Guard against a double-click on the final card firing two POSTs.
+    if (submitting) return;
+
     const updatedAnswers = { ...answers, [question.id]: answerValue };
     setAnswers(updatedAnswers);
 
@@ -126,20 +138,41 @@ function Quiz() {
 
     if (!isLast) {
       setCurrentQuestion(currentQuestion + 1);
-    } else {
-      const response = await fetch('/api/quiz', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...updatedAnswers, avatar_name: avatarName }),
-        credentials: 'include',
+      return;
+    }
+
+    setSubmitting(true);
+    setSubmitError(null);
+
+    try {
+      await apiSend('/api/quiz', 'POST', {
+        ...updatedAnswers,
+        avatar_name: avatarName,
       });
 
-      if (response.ok) {
-        navigate('/avatar');
-      } else {
-        alert('Something went wrong, try again');
-      }
+      // Saved server-side now, so the tab-scoped copy is no longer needed.
+      forgetAvatarName();
+      navigate('/avatar');
+    } catch (err) {
+      if (err.status === 401) return navigate('/login');
+      /*
+        Was alert('Something went wrong, try again'), which threw away the
+        server's actual message. The API now returns specific validation
+        errors ("budget must be one of: ..."), which are far more useful
+        rendered in the page.
+      */
+      setSubmitError(err.message);
+      setSubmitting(false);
     }
+  }
+
+  /*
+    No name anywhere — router state empty AND nothing in sessionStorage. Send
+    them back one screen to pick one, instead of letting them answer six
+    questions and hit a 400 at the very end (avatar_name is required by the API).
+  */
+  if (!avatarName) {
+    return <Navigate to="/avatar/name" replace />;
   }
 
   return (
@@ -259,6 +292,19 @@ function Quiz() {
               </button>
             ))}
           </div>
+        )}
+
+        {/* Submit failures used to be an alert() that discarded the server's
+            message. Shown in the page now, with the answers still intact so
+            the user can simply press the last option again. */}
+        {submitError && (
+          <p className="mt-6 rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
+            {submitError}
+          </p>
+        )}
+
+        {submitting && (
+          <p className="mt-6 text-sm text-slate-400">Saving your profile…</p>
         )}
       </main>
 
