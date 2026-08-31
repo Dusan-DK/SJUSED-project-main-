@@ -11,11 +11,15 @@ import Navbar from './components/Navbar';
 import NameAvatar from './pages/NameAvatar';
 import PublicOnlyRoutes from './components/PublicOnlyRoutes';
 import QuizRoute from './components/QuizRoute';
+import { AuthProvider } from './context/AuthProvider';
+
 function App() {
   return (
-    
-
+    // AuthProvider sits INSIDE BrowserRouter (so it could use router hooks if
+    // needed) but OUTSIDE Navbar and Routes, so the navbar and every guard
+    // share one answer to "who is logged in" instead of asking separately.
     <BrowserRouter>
+    <AuthProvider>
     <Navbar/>
       <Routes>
         <Route path="/" element={<PublicOnlyRoutes><Home /></PublicOnlyRoutes>} />
@@ -27,6 +31,7 @@ function App() {
         <Route path="/products" element={<ProtectedRoute><Products /></ProtectedRoute>} />
         <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
       </Routes>
+    </AuthProvider>
     </BrowserRouter>
   );
 }

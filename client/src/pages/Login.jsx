@@ -1,19 +1,23 @@
 import AuthForm from '../components/AuthForm';
 import {useNavigate} from 'react-router-dom';
+import { apiSend } from '../lib/api';
+import { useAuth } from '../context/authContext';
+
 function Login() {
   const navigate = useNavigate();
+  const { refresh } = useAuth();
 
   async function handleLogin(email, password) {
-    const response = await fetch('/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
+    // apiSend throws an ApiError carrying the server's message, which AuthForm
+    // catches and displays — same behaviour as the manual check it replaces.
+    await apiSend('/api/login', 'POST', { email, password });
 
-    if (!response.ok) {
-      const data = await response.json();
-      throw new Error(data.error || 'Login failed');
-    } 
+    /*
+      MUST refresh before navigating. The provider cached "logged out" when the
+      app loaded; without re-asking, ProtectedRoute would still see user=null
+      and bounce us straight back to /login.
+    */
+    await refresh();
     navigate('/avatar');
   }
 

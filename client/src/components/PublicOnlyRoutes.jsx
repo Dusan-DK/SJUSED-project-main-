@@ -1,26 +1,17 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Navigate } from 'react-router-dom';
+import { useAuth } from '../context/authContext';
+import ScreenMessage from './ScreenMessage';
 
+/*
+  Logged-OUT users only — the marketing home page, login and register.
+  An already-authenticated visitor gets bounced to their avatar.
+*/
 function PublicOnlyRoute({ children }) {
-  const [checking, setChecking] = useState(true);
+  const { user, loading } = useAuth();
 
-  const navigate = useNavigate();
+  if (loading) return <ScreenMessage>Loading…</ScreenMessage>;
+  if (user) return <Navigate to="/avatar" replace />;
 
-  useEffect(() => {
-    fetch('/api/me', { credentials: 'include' })
-      .then((res) => {
-        if (res.ok) {
-          // prihlásený → nemá tu čo robiť, preč
-          navigate('/avatar');
-        } else {
-          // neprihlásený → smie vidieť stránku
-          setChecking(false);
-        }
-      })
-      .catch(() => setChecking(false)); // ak fetch padne, radšej ukáž stránku
-  }, [navigate]);
-
-  if (checking) return <p>Loading…</p>;
   return children;
 }
 

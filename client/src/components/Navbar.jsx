@@ -1,15 +1,9 @@
-import { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
+import { useAuth } from '../context/authContext';
 
 export default function Navbar() {
-  const [user, setUser] = useState(null);
-
-  useEffect(() => {
-    fetch('/api/me', { credentials: 'include' })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => setUser(data))
-      .catch(() => setUser(null));
-  }, []);
+  // Was its own /api/me fetch — one of four the app fired on every page load.
+  const { user, loading } = useAuth();
 
   const link = 'px-4 py-2 rounded-full text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors';
 
@@ -28,7 +22,14 @@ export default function Navbar() {
       </NavLink>
 
       <nav className="flex items-center gap-2">
-        {user ? (
+        {/*
+          While auth is still resolving, show nothing rather than guessing.
+          The old code defaulted to the logged-OUT links and then swapped them
+          for the logged-in ones once its fetch landed — a visible flicker on
+          every page load, and worse, "Login / Get started" briefly appearing
+          to users who were already signed in.
+        */}
+        {loading ? null : user ? (
           <>
             <NavLink to="/avatar" className={linkActive}>Avatar</NavLink>
             <NavLink to="/profile" className={linkActive}>Profile</NavLink>

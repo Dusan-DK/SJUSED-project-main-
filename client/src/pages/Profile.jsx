@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { apiGet, apiSend } from '../lib/api';
+import { useAuth } from '../context/authContext';
 /*
   FIELDS as data. Each option is { value, label }:
   - value → what's stored in DB (matches quiz contract exactly: oldMoney, other, etc.)
@@ -86,6 +87,8 @@ function Profile() {
   const [saveError, setSaveError] = useState(null);
 
   const navigate = useNavigate();
+  const { logout } = useAuth();
+
   useEffect(() => {
     let cancelled = false;
 
@@ -276,13 +279,14 @@ function Profile() {
           </Link>
           <button
             type="button"
-            onClick={() => {
-              fetch('/api/logout', { 
-                method: 'POST',
-                credentials: 'include' 
-              }).then(
-                () => navigate('/login')
-              );
+            /*
+              Goes through the provider so the shared user state is cleared.
+              A bare fetch left the navbar still showing Avatar/Profile links
+              after logging out, because nothing told it to re-check.
+            */
+            onClick={async () => {
+              await logout();
+              navigate('/login');
             }}
             className="rounded-full px-7 py-3 text-sm font-semibold text-slate-700 ring-1 ring-slate-300 transition hover:bg-slate-100"
           >
