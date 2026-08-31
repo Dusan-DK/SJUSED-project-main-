@@ -1,0 +1,34 @@
+# Dependencies
+node_modules
+
+# Environment — never commit real values.
+# These patterns have no slash, so they match at any depth (client/.env too).
+.env
+.env.*
+!.env.example
+
+# Claude Code — personal, machine-local settings. Shared config belongs in
+# .claude/settings.json instead, which is not ignored.
+.claude/settings.local.json
+
+# Build output
+dist
+dist-ssr
+build
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+Thumbs.db
+*.suo
+*.sw?
