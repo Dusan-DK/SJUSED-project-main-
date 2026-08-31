@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { apiGet } from '../lib/api';
 
 /*
   ZONES AS DATA (same instinct as STEPS and questions):
@@ -34,17 +36,51 @@ function Avatar() {
   const [profile, setProfile] = useState(null);
   // ONE piece of state drives ALL hover visuals. null = nothing hovered.
   const [hoveredZone, setHoveredZone] = useState(null);
+  const [error, setError] = useState(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
-    fetch('/api/avatar/profile', { credentials: 'include' })
-      .then((res) => res.json())
-      .then((data) => setProfile(data));
-  }, []);
+    let cancelled = false;
+
+    apiGet('/api/avatar/profile')
+      .then((data) => {
+        if (!cancelled) setProfile(data);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        if (err.status === 401) return navigate('/login');
+        /*
+          404 = logged in but the quiz was never completed, so there is no
+          profile to build an avatar from. Previously the error object was
+          stored as the profile: it is truthy, so the `if (!profile)` guard
+          below passed and the page rendered with profile.gender undefined —
+          silently showing every such user the female avatar.
+        */
+        if (err.status === 404) return navigate('/avatar/name');
+        setError(err.message);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
 
   function handleZoneClick(zone) {
-    // Same redirect as your base code. (Deferred: swap to useNavigate later —
-    // same window.location.href full-reload note as the other pages.)
-    window.location.href = `/products?zone=${zone}`;
+    // navigate() instead of window.location.href: this is a client-side route
+    // change, so React Router swaps the view. Assigning to location.href threw
+    // away the whole SPA — full document reload, every asset re-fetched, and
+    // /api/me re-requested by the navbar and route guard on the way back.
+    navigate(`/products?zone=${zone}`);
+  }
+
+  // Error state has to come FIRST — otherwise a failed load is indistinguishable
+  // from a slow one and the user stares at "Loading…" forever.
+  if (error) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#f5f8fb]">
+        <p className="text-sm font-semibold text-red-500">{error}</p>
+      </div>
+    );
   }
 
   // Loading state — styled instead of a bare <p>.

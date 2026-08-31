@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
+import { apiGet, apiSend } from '../lib/api';
 /*
   FIELDS as data. Each option is { value, label }:
   - value → what's stored in DB (matches quiz contract exactly: oldMoney, other, etc.)
@@ -81,23 +82,45 @@ function Profile() {
   const [profile, setProfile] = useState(null);
   const [editing, setEditing] = useState(null);
 
+  const [error, setError] = useState(null);
+  const [saveError, setSaveError] = useState(null);
+
   const navigate = useNavigate();
   useEffect(() => {
-    fetch('/api/avatar/profile', { credentials: 'include' })
-      .then((res) => res.json())
-      .then((data) => setProfile(data));
-  }, []);
+    let cancelled = false;
 
-  // Single-value save (gender, budget, etc.): save one value, close the card.
+    apiGet('/api/avatar/profile')
+      .then((data) => {
+        if (!cancelled) setProfile(data);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        if (err.status === 401) return navigate('/login');
+        if (err.status === 404) return navigate('/avatar/name');
+        setError(err.message);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
+
+  /*
+    Single-value save (gender, budget, etc.). The response used to be ignored
+    entirely: the local state was updated whether or not the PATCH succeeded,
+    so a rejected value looked saved until the page was reloaded. Now the
+    server has to confirm before the UI moves.
+  */
   async function handleChange(field, value) {
-    await fetch('/api/profile', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ field, value }),
-    });
-    setProfile({ ...profile, [field]: value });
-    setEditing(null);
+    setSaveError(null);
+    try {
+      await apiSend('/api/profile', 'PATCH', { field, value });
+      setProfile({ ...profile, [field]: value });
+      setEditing(null);
+    } catch (err) {
+      if (err.status === 401) return navigate('/login');
+      setSaveError(err.message);
+    }
   }
 
   // Multi-select toggle (style): flip the value in the array, save the whole
@@ -108,14 +131,28 @@ function Profile() {
       ? current.filter((v) => v !== value)
       : [...current, value];
 
-    await fetch('/api/profile', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ field: 'style_archetype', value: updated }),
-    });
-    setProfile({ ...profile, style_archetype: updated });
-    // note: no setEditing(null) — card stays open until user hits Done
+    setSaveError(null);
+    try {
+      await apiSend('/api/profile', 'PATCH', { field: 'style_archetype', value: updated });
+      setProfile({ ...profile, style_archetype: updated });
+      // note: no setEditing(null) — card stays open until user hits Done
+    } catch (err) {
+      if (err.status === 401) return navigate('/login');
+      /*
+        The server rejects an empty style array (it would break
+        /api/recommendations), so deselecting the last style fails here and
+        the UI correctly keeps showing the previous selection.
+      */
+      setSaveError(err.message);
+    }
+  }
+
+  if (error) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#f5f8fb]">
+        <p className="text-sm font-semibold text-red-500">{error}</p>
+      </div>
+    );
   }
 
   if (!profile) {
@@ -221,14 +258,22 @@ function Profile() {
           })}
         </div>
 
+        {/* Save failures used to be invisible — the UI showed the new value
+            regardless and only a page reload revealed it hadn't stuck. */}
+        {saveError && (
+          <p className="mt-5 rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
+            {saveError}
+          </p>
+        )}
+
         {/* ── ACTIONS ── */}
         <div className="mt-10 flex items-center gap-3">
-          <a
-            href="/avatar"
+          <Link
+            to="/avatar"
             className="rounded-full bg-amber-400 px-7 py-3 text-sm font-semibold text-slate-900 transition hover:bg-amber-500"
           >
             Back to my avatar
-          </a>
+          </Link>
           <button
             type="button"
             onClick={() => {
