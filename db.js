@@ -13,13 +13,8 @@ import pg from 'pg';
   any that die. Same `.query()` signature, so nothing else in the app changes.
 */
 const db = new pg.Pool({
-  user: process.env.DB_USER,
-  host: process.env.DB_HOST,
-  database: process.env.DB_NAME,
-  password: process.env.DB_PASSWORD,
-  // Env vars are always strings; pg wants a number here.
-  port: Number(process.env.DB_PORT) || 5432,
-  
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 
   max: 10,                      // max simultaneous connections
   idleTimeoutMillis: 30_000,    // release idle connections after 30s
@@ -45,7 +40,7 @@ db.on('error', (err) => {
 try {
   const client = await db.connect();
   client.release();
-  console.log(`Connected to Postgres db "${process.env.DB_NAME}"`);
+  console.log(`Connected to Postgres db "${client.database}"`);
 } catch (err) {
   console.error('Could not connect to Postgres:', err.message);
   process.exit(1);
