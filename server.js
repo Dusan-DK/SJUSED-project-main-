@@ -8,6 +8,7 @@ import { Strategy } from "passport-local";
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import rateLimit from 'express-rate-limit';
 import connectPgSimple from 'connect-pg-simple';
+import helmet from 'helmet';
 import { validateCredentials, validateProfileField, validateQuiz } from './validation.js';
 
 const app = express();
@@ -15,11 +16,49 @@ const PORT = process.env.PORT || 3000;
 const saltRounds = 10;
 const isProduction = process.env.NODE_ENV === 'production';
 
+/*
+  A real bcrypt hash of a value nobody can log in with, used to burn the same
+  ~70ms when there is no password to check as when there is.
+
+  Why: comparing a password takes bcrypt real work, but returning early for an
+  unknown email costs nothing. That made login answer in ~0.003s for an address
+  that is not registered and ~0.069s for one that is — identical JSON, but a
+  20x timing gap that reliably reveals which emails have accounts.
+
+  Computed once at boot; hashSync is fine here because nothing is serving yet.
+*/
+const TIMING_DECOY_HASH = bcrypt.hashSync('timing-decoy-never-a-real-password', saltRounds);
+
 // Fail loudly at boot rather than signing every cookie with `undefined`.
 if (!process.env.SESSION_SECRET) {
   console.error('SESSION_SECRET is not set. See .env.example.');
   process.exit(1);
 }
+/*
+  Security response headers. First in the chain so they are set even on
+  responses that never reach a route (404s, errors, rate-limit rejections).
+
+  Worth being clear about what actually helps here: this server sends JSON and
+  never an HTML document, so the headers helmet is best known for — CSP and
+  X-Frame-Options — protect nothing, since there is no page of ours for a
+  browser to render or frame. They stay on because they cost nothing.
+
+  The ones that do earn their place:
+    X-Content-Type-Options: nosniff  — stops a browser re-interpreting a JSON
+                                       response as HTML or script
+    Referrer-Policy                  — keeps our URLs out of Referer headers
+    Strict-Transport-Security        — HTTPS-only, once actually on HTTPS
+    (X-Powered-By is removed, so responses stop advertising Express)
+
+  NOTE for deployment: helmet also sets Cross-Origin-Resource-Policy:
+  same-origin. That does not affect fetch() calls, which are governed by CORS,
+  so it is safe with a separately hosted frontend. But this app has no cors
+  middleware at all — if you ever serve the client from a different domain
+  than the API, that has to be added, along with sameSite:'none' on the
+  session cookie.
+*/
+app.use(helmet());
+
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minút
   max: 10,                   // max 10 pokusov per IP
@@ -374,9 +413,12 @@ passport.use(
         [email.trim()]
       );
 
-      // Unknown email. Same answer as a wrong password, so the response can't
-      // be used to work out which addresses are registered.
+      /*
+        Unknown email. Same answer AND the same duration as a wrong password —
+        the decoy compare always fails, it exists purely to spend the time.
+      */
       if (result.rows.length === 0) {
+        await bcrypt.compare(password, TIMING_DECOY_HASH);
         return cb(null, false);
       }
 
@@ -390,6 +432,7 @@ passport.use(
         turn a plain wrong-account-type login into a server error. Guard first.
       */
       if (!user.password_hash) {
+        await bcrypt.compare(password, TIMING_DECOY_HASH);
         return cb(null, false);
       }
 
@@ -522,6 +565,45 @@ passport.deserializeUser(async (id, cb) => {
   } catch (err) {
     cb(err);
   }
+});
+
+/*
+  404 — must come after every route, so it only runs when nothing matched.
+  Without it Express falls back to its built-in handler, which answers an
+  HTML error page. Every client of this server expects JSON, so a typo'd
+  endpoint used to blow up in the browser as "Unexpected token '<'" rather
+  than reporting a plain 404.
+*/
+app.use((req, res) => {
+  res.status(404).json({ error: 'Not found' });
+});
+
+/*
+  Central error handler. Express identifies it by its FOUR arguments — drop
+  `next` and it silently becomes ordinary middleware that never runs.
+
+  Express 5 forwards rejected promises from async handlers here automatically,
+  which is what previously reached the default handler: outside production
+  that responds with the full stack trace, exposing absolute file paths, the
+  project layout and library versions to anyone who can trigger an error.
+
+  The real error is logged server-side; the client gets a flat message.
+*/
+app.use((err, req, res, next) => {
+  console.error(`Unhandled error on ${req.method} ${req.originalUrl}:`, err);
+
+  // If a handler already began streaming a response we cannot replace the
+  // status; hand back to Express to close the connection.
+  if (res.headersSent) {
+    return next(err);
+  }
+
+  // Body-parser throws this for malformed JSON — a client mistake, not ours.
+  if (err.type === 'entity.parse.failed') {
+    return res.status(400).json({ error: 'Invalid JSON body' });
+  }
+
+  res.status(500).json({ error: 'Server error' });
 });
 
 app.listen(PORT, () => {
