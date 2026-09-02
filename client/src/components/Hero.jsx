@@ -1,4 +1,3 @@
-import maleAvatar from "/public/img/MaleAvatar.png";
 import { Link } from "react-router-dom";
 
 function Hero() {
@@ -94,7 +93,11 @@ function Hero() {
                 aria-hidden="true"
               />
               <img
-                src={maleAvatar}
+                /* Files in public/ are served from the root, so reference them
+                   by URL rather than importing them. Importing from /public
+                   made Vite warn on every start, and it is how Avatar.jsx and
+                   Profile.jsx already load these same two images. */
+                src="/img/MaleAvatar.png"
                 alt="Your digital avatar"
                 className="h-auto w-80 select-none sm:w-80 lg:w-[30rem]"
                 draggable="false"
