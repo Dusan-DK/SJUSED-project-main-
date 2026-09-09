@@ -87,7 +87,7 @@ async function handleSubmit(e) {
           <span className="h-px flex-1 bg-slate-200" />
         </div>
       <a
-        href={`${import.meta.env.VITE_BACKEND_URL}/api/auth/google`}
+        href="/api/auth/google"
         className="flex w-full items-center justify-center rounded-full py-3.5 text-sm font-semibold text-slate-900 ring-1 ring-slate-300 transition hover:bg-slate-50"
         >Continue with Google
       </a>
