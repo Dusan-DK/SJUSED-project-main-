@@ -42,7 +42,7 @@ try {
   client.release();
   console.log(`Connected to Postgres db "${client.database}"`);
 } catch (err) {
-  console.error('Could not connect to Postgres:', err.message);
+  console.error('Could not connect to Postgres:', err);
   process.exit(1);
 }
 

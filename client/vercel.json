@@ -1,0 +1,5 @@
+{
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "https://sjused-project-main-production.up.railway.app/api/:path*" }
+  ]
+}

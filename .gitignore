@@ -32,3 +32,9 @@ pnpm-debug.log*
 Thumbs.db
 *.suo
 *.sw?
+
+# Database dumps — contain real user emails, password hashes and sessions.
+*.sql.bak
+sjused_backup.sql
+test_backup.dump
+*.dump

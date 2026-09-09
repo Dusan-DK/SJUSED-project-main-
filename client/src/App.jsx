@@ -11,6 +11,7 @@ import Navbar from './components/Navbar';
 import NameAvatar from './pages/NameAvatar';
 import PublicOnlyRoutes from './components/PublicOnlyRoutes';
 import QuizRoute from './components/QuizRoute';
+import NotFound from './pages/NotFound';
 import { AuthProvider } from './context/AuthProvider';
 
 function App() {
@@ -30,6 +31,14 @@ function App() {
         <Route path="/avatar" element={<ProtectedRoute><Avatar /></ProtectedRoute>} />
         <Route path="/products" element={<ProtectedRoute><Products /></ProtectedRoute>} />
         <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+
+        {/*
+          Catch-all — must stay LAST; React Router picks the best match rather
+          than the first, but keeping it here matches how it reads. Deliberately
+          outside every guard: a wrong URL is a wrong URL whether or not you are
+          logged in, and wrapping it would redirect instead of explaining.
+        */}
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </AuthProvider>
     </BrowserRouter>

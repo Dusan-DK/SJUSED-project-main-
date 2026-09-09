@@ -9,12 +9,24 @@ import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import rateLimit from 'express-rate-limit';
 import connectPgSimple from 'connect-pg-simple';
 import helmet from 'helmet';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { validateCredentials, validateProfileField, validateQuiz } from './validation.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const saltRounds = 10;
 const isProduction = process.env.NODE_ENV === 'production';
+
+/*
+  This file is an ES module ("type": "module" in package.json), so the CommonJS
+  `__dirname` does not exist here. Rebuild it from import.meta.url so the static
+  path below is anchored to this file rather than to process.cwd() — otherwise
+  `npm start` from a parent directory, or a process manager with its own working
+  directory, would serve from the wrong place.
+*/
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const CLIENT_DIST = path.join(__dirname, 'client', 'dist');
 
 /*
   A real bcrypt hash of a value nobody can log in with, used to burn the same
@@ -565,6 +577,33 @@ passport.deserializeUser(async (id, cb) => {
   } catch (err) {
     cb(err);
   }
+});
+
+/*
+  Serve the built React client. Placed after every /api route so a real API
+  path is never shadowed by a file that happens to share its name, and before
+  the 404 handler so hashed assets under /assets resolve normally.
+*/
+app.use(express.static(CLIENT_DIST));
+
+/*
+  SPA fallback: any GET that reached this point matched no API route and no
+  file on disk, so it is a client-side route (/quiz, /profile, a refresh on a
+  deep link) and index.html must answer it — React Router takes over from there.
+
+  The /api guard matters: without it a typo'd or removed endpoint would return
+  200 with an HTML document, and the client's res.json() would fail with
+  "Unexpected token '<'" instead of a clean 404 from the handler below. Non-GET
+  requests fall through untouched — a stray POST should 404, not get a page.
+
+  Express 5 requires the wildcard to be named (`/*splat`); the bare `*` that
+  worked in Express 4 throws at startup under path-to-regexp v8.
+*/
+app.get('/*splat', (req, res, next) => {
+  if (req.path.startsWith('/api/')) {
+    return next();
+  }
+  res.sendFile(path.join(CLIENT_DIST, 'index.html'));
 });
 
 /*
