@@ -32,6 +32,13 @@ const ZONES = {
   ]
 };
 
+/*
+  Which side of its zone the touch callout ("• Hair") sits on. Alternating keeps
+  the labels from stacking in one column, and puts each one in the empty space
+  beside the body instead of over the face or clothes. Same for both avatars.
+*/
+const CALLOUT_SIDE = { hair: 'right', face: 'left', torso: 'right', legs: 'left', feet: 'right' };
+
 function Avatar() {
   const [profile, setProfile] = useState(null);
   // ONE piece of state drives ALL hover visuals. null = nothing hovered.
@@ -97,46 +104,70 @@ function Avatar() {
     const zones = profile.gender === 'male' ? ZONES.male : ZONES.female;
     
   return (
-    <div className="flex min-h-screen flex-col items-center bg-[#f5f8fb] px-6">
-      {/* ── HEADING BLOCK ── (nav is added separately by you) */}
-      <div className="mt-10 text-center">
-       
-        <p className="font-display text-sm font-bold uppercase tracking-widest text-amber-600">
+    // overflow-x-clip: the avatar box may run slightly past the screen edges on
+    // phones (see below) — clip that instead of letting the page scroll sideways.
+    <div className="flex min-h-screen flex-col items-center overflow-x-clip bg-[#f5f8fb] px-4 pb-6 sm:px-6 sm:pb-10">
+      {/* ── HEADING BLOCK ── tighter on phones so the avatar gets the height */}
+      <div className="mt-5 text-center sm:mt-10">
+        <p className="font-display text-xs font-bold uppercase tracking-widest text-amber-600 sm:text-sm">
           Your fashion guide
         </p>
-         {profile.avatar_name && (
-     <span className="my-3 inline-block rounded-full bg-amber-100 px-4 py-1 font-display text-lg font-extrabold text-amber-500">
-        {profile.avatar_name}
-      </span>
-       )}
-        <h1 className="mx-auto mt-3 max-w-md text-2xl font-medium leading-snug text-slate-600 sm:text-3xl">
-          Click any zone to discover products picked for you.
+        {profile.avatar_name && (
+          <span className="mt-2 inline-block rounded-full bg-amber-100 px-4 py-1 font-display text-base font-extrabold text-amber-500 sm:my-3 sm:text-lg">
+            {profile.avatar_name}
+          </span>
+        )}
+        <h1 className="mx-auto mt-2 max-w-xs text-lg font-medium leading-snug text-slate-600 sm:mt-3 sm:max-w-md sm:text-3xl">
+          {/* pointer-coarse = touchscreen, where there is nothing to "click" */}
+          <span className="pointer-coarse:hidden">Click</span>
+          <span className="hidden pointer-coarse:inline">Tap</span> any zone to
+          discover products picked for you.
         </h1>
       </div>
 
       {/* ── AVATAR + ZONES ──
-          THE KEY STRUCTURAL FIX:
-          - `relative w-fit` wrapper shrink-wraps the image, so the % positions
-            on the zones are measured against the IMAGE, not the whole page.
-          - The zones are now INSIDE this wrapper (they were siblings before —
-            that was the positioning bug). Absolute children position against
-            the nearest `relative` ancestor, which is now this wrapper. */}
-      <div className="relative mt-8 w-fit">
+          The zones are % positions, so they only line up if this box has the
+          image's exact proportions: `aspect-[976/1101]` is the PNG's size, and
+          the image fills the box edge to edge.
+
+          THE MOBILE BUG: the old `h-[70vh] w-auto` fixed the HEIGHT and let the
+          width follow. On a phone that width was wider than the screen, so
+          Tailwind's base `img { max-width: 100% }` squeezed it — and the avatar
+          came out stretched thin. Now the WIDTH is set and the height follows:
+          - (100svh - 15rem) × 0.886 → as tall as the screen allows under the
+            navbar and heading (0.886 = 976 / 1101, width per unit of height).
+          - max 100% + 4rem → may run 2rem past each side. The PNG has wide
+            transparent margins, so only empty space gets clipped.
+          - min 16rem → still usable on a phone held sideways. */}
+      <div className="relative mt-4 aspect-[976/1101] w-[calc((100svh_-_15rem)*0.886)] min-w-64 max-w-[calc(100%_+_4rem)] sm:mt-8 sm:w-[calc((100svh_-_20rem)*0.886)] sm:max-w-[min(100%,44rem)]">
+        {/* Soft glow behind the figure and a floor shadow under the shoes, so
+            the avatar stands on the page instead of floating on flat grey. */}
+        <div aria-hidden="true" className="pointer-events-none absolute inset-x-[20%] top-[10%] bottom-[10%] rounded-full bg-amber-200/40 blur-3xl" />
+        <div aria-hidden="true" className="pointer-events-none absolute bottom-[2.5%] left-1/2 h-[4%] w-[36%] -translate-x-1/2 rounded-[50%] bg-slate-900/15 blur-md" />
+
         <img
           src={avatarSrc}
           alt="Your avatar"
-          className="h-[70vh] w-auto select-none"
+          className="absolute inset-0 size-full select-none"
           draggable="false"
         />
-        {zones.map((zone) => {
+        {zones.map((zone, i) => {
           const isHovered = hoveredZone === zone.id;
+          const calloutLeft = CALLOUT_SIDE[zone.id] === 'left';
           return (
             <button
               key={zone.id}
               type="button"
+              aria-label={`Shop ${zone.label}`}
               onClick={() => handleZoneClick(zone.id)}
-              onMouseEnter={() => setHoveredZone(zone.id) }
-              onMouseLeave={() => setHoveredZone(null)}
+              /*
+                Pointer events, and only for a real mouse. With onMouseEnter, a
+                tap on iPhone fired the "hover" first, the pill appeared, and
+                Safari treats a tap that changes the page on hover as "just
+                hovering" — so the first tap often did nothing at all.
+              */
+              onPointerEnter={(e) => e.pointerType === 'mouse' && setHoveredZone(zone.id)}
+              onPointerLeave={() => setHoveredZone(null)}
               // Inline style is the RIGHT tool ONLY for the dynamic per-zone
               // coordinates — Tailwind can't express arbitrary runtime %s well.
               // Everything visual/static stays in className.
@@ -146,7 +177,7 @@ function Avatar() {
                 width: zone.width,
                 height: zone.height,
               }}
-              className={`cursor-pointer absolute flex items-center justify-center rounded-2xl transition ${
+              className={`absolute flex cursor-pointer items-center justify-center rounded-2xl outline-none transition focus-visible:ring-2 focus-visible:ring-amber-400 active:bg-amber-300/25 ${
                 isHovered
                   ? 'bg-amber-300/25 ring-2 ring-amber-400'
                   : 'bg-transparent'
@@ -161,6 +192,30 @@ function Avatar() {
                   • {zone.label}
                 </span>
               )}
+
+              {/* Touch callout — phones have no hover, so without this nothing
+                  tells you the avatar is tappable or where. A pulsing dot sits
+                  on the zone's edge with its label outside the body. It lives
+                  INSIDE the button, so tapping the label counts as a tap on
+                  the zone — a bigger target than the zone alone. */}
+              <span
+                aria-hidden="true"
+                className={`absolute top-1/2 hidden -translate-y-1/2 items-center gap-1.5 pointer-coarse:flex ${
+                  calloutLeft ? 'right-full -mr-1.5 flex-row-reverse' : 'left-full -ml-1.5'
+                }`}
+              >
+                <span className="relative flex size-3">
+                  <span
+                    className="absolute size-full rounded-full bg-amber-400 opacity-75 motion-safe:animate-ping"
+                    // Staggered so the five dots ripple instead of blinking in unison.
+                    style={{ animationDelay: `${i * 300}ms` }}
+                  />
+                  <span className="relative size-3 rounded-full bg-amber-500 ring-2 ring-white" />
+                </span>
+                <span className="whitespace-nowrap rounded-full bg-white/90 px-2.5 py-0.5 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200">
+                  {zone.label}
+                </span>
+              </span>
             </button>
           );
         })}
