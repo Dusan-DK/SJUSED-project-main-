@@ -46,30 +46,18 @@ if (!process.env.SESSION_SECRET) {
   console.error('SESSION_SECRET is not set. See .env.example.');
   process.exit(1);
 }
-/*
-  Security response headers. First in the chain so they are set even on
-  responses that never reach a route (404s, errors, rate-limit rejections).
+//helmet now allows images from data: and https: sources, which is needed for the avatar images
 
-  Worth being clear about what actually helps here: this server sends JSON and
-  never an HTML document, so the headers helmet is best known for — CSP and
-  X-Frame-Options — protect nothing, since there is no page of ours for a
-  browser to render or frame. They stay on because they cost nothing.
-
-  The ones that do earn their place:
-    X-Content-Type-Options: nosniff  — stops a browser re-interpreting a JSON
-                                       response as HTML or script
-    Referrer-Policy                  — keeps our URLs out of Referer headers
-    Strict-Transport-Security        — HTTPS-only, once actually on HTTPS
-    (X-Powered-By is removed, so responses stop advertising Express)
-
-  NOTE for deployment: helmet also sets Cross-Origin-Resource-Policy:
-  same-origin. That does not affect fetch() calls, which are governed by CORS,
-  so it is safe with a separately hosted frontend. But this app has no cors
-  middleware at all — if you ever serve the client from a different domain
-  than the API, that has to be added, along with sameSite:'none' on the
-  session cookie.
-*/
-app.use(helmet());
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+        'img-src': ["'self'", 'data:', 'https:'],
+      },
+    },
+  })
+);
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minút
