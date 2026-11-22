@@ -41,7 +41,7 @@ function Hero() {
             */}
             <p className="mx-auto mt-6 max-w-md text-base leading-relaxed text-slate-500 lg:mx-0">
               Sjused builds a digital you, then hands you a short list of
-              self-care and fashion picks matched to your skin, budget and
+              fashion picks matched to your style, budget and
               taste — the stuff you'd actually buy, without wading through
               200 products.
             </p>

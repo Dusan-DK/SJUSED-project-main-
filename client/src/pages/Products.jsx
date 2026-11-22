@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
-import { apiGet, apiGetList } from '../lib/api';
+import { apiGet, apiGetList, apiSend } from '../lib/api';
+import { trackEvent } from '../lib/track';
+import ProductCard from '../components/ProductCard';
 
 /*
   ZONE → display config as data.
@@ -8,8 +10,7 @@ import { apiGet, apiGetList } from '../lib/api';
   The `zone` value (url ?zone=) stays the backend contract — unchanged.
 */
 const ZONES = [
-  { id: 'hair',  label: 'Hair',     heading: 'Hair',     subtitle: 'Haircare picks for your routine.' },
-  { id: 'face',  label: 'Face',     heading: 'Face',     subtitle: 'Skincare & complexion picks for you.' },
+  { id: 'head',  label: 'Head',     heading: 'Head',     subtitle: 'Caps & headscarves for your look.' },
   { id: 'torso', label: 'Top',      heading: 'Top',      subtitle: 'Tops & layers in your style.' },
   { id: 'legs',  label: 'Bottoms',  heading: 'Bottoms',  subtitle: 'Bottoms that fit your look.' },
   { id: 'feet',  label: 'Footwear', heading: 'Footwear', subtitle: 'Shoes matched to your style.' },
@@ -17,7 +18,7 @@ const ZONES = [
 
 function Products() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const zone = searchParams.get('zone') || 'face';
+  const zone = searchParams.get('zone') || 'head';
   const [profile, setProfile] = useState(null);
   // Bumped by "Try again". `zone` alone can't drive a retry, because retrying
   // the SAME zone leaves it unchanged and the effect would never re-run.
@@ -70,6 +71,54 @@ function Products() {
   const products = result.products;
   const error = result.error;
 
+  /*
+    VIEWS: log the shortlist once each time a new one arrives (zone change,
+    retry). The ref remembers which `result` was already logged, because in
+    development StrictMode runs every effect twice — without it, each view
+    would be counted twice in dev.
+  */
+  const loggedResult = useRef(null);
+  useEffect(() => {
+    if (loading || loggedResult.current === result) return;
+    loggedResult.current = result;
+    trackEvent('view', result.products.map((p) => p.id));
+  }, [loading, result]);
+
+  /*
+    HEARTS: the server sends `saved` on each product. A click flips it here
+    straight away (optimistic) and rolls back if the request fails, so the
+    heart feels instant. `pendingSaves` blocks a second click on the same
+    heart until the first request answers, so a fast double-click can't send
+    PUT and DELETE that arrive in the wrong order.
+  */
+  const [savedOverrides, setSavedOverrides] = useState({});
+  const [pendingSaves, setPendingSaves] = useState(() => new Set());
+
+  function isSaved(product) {
+    return product.id in savedOverrides ? savedOverrides[product.id] : product.saved;
+  }
+
+  async function handleSaveToggle(product) {
+    if (pendingSaves.has(product.id)) return;
+
+    const next = !isSaved(product);
+    setSavedOverrides((o) => ({ ...o, [product.id]: next }));
+    setPendingSaves((s) => new Set(s).add(product.id));
+
+    try {
+      await apiSend(`/api/saved/${product.id}`, next ? 'PUT' : 'DELETE');
+    } catch (err) {
+      if (err.status === 401) return navigate('/login');
+      setSavedOverrides((o) => ({ ...o, [product.id]: !next })); // roll back
+    } finally {
+      setPendingSaves((s) => {
+        const copy = new Set(s);
+        copy.delete(product.id);
+        return copy;
+      });
+    }
+  }
+
   // Tab click just updates the URL param. That changes `zone`, which triggers
   // the effect above to refetch. URL stays shareable/back-button friendly.
   function handleTabClick(zoneId) {
@@ -90,7 +139,7 @@ function Products() {
     };
   }, []);
 
-  const activeZone = ZONES.find((z) => z.id === zone) || ZONES[1];
+  const activeZone = ZONES.find((z) => z.id === zone) || ZONES[0];
 
   return (
     <div className="min-h-screen bg-[#f5f8fb]">
@@ -120,9 +169,6 @@ function Products() {
     ))}
     <span className="rounded-full bg-amber-100/70 px-4 py-1.5 text-sm font-semibold text-amber-800">
       {profile.budget} budget
-    </span>
-    <span className="rounded-full bg-amber-100/70 px-4 py-1.5 text-sm font-semibold text-amber-800">
-      {profile.skin_type} skin
     </span>
     <span className="text-sm text-slate-400">Filtered to your profile</span>
   </div>
@@ -170,66 +216,12 @@ function Products() {
         ) : (
           <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {products.map((product) => (
-              <div
+              <ProductCard
                 key={product.id}
-                className="overflow-hidden rounded-2xl bg-white ring-1 ring-slate-200 transition hover:shadow-md"
-              >
-                {/* IMAGE AREA */}
-                <div className="relative aspect-square bg-white">
-                   {product.image_url ? (
-                    <img
-                    src={product.image_url}
-                    alt={product.name}
-                    className="h-full w-full object-contain p-4"
-                    />
-                  ) : (
-                    <div className="flex h-full items-center justify-center text-sm text-slate-400">
-                      product shot
-                    </div>
-                  )}
-                  {/* heart button — placeholder, wire to wishlist later */}
-                  <button
-                    type="button"
-                    className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full bg-white shadow-sm transition hover:bg-slate-50"
-                    aria-label="Save"
-                  >
-                    <span className="text-slate-700">♡</span>
-                  </button>
-                </div>
-
-                {/* DETAILS */}
-                <div className="p-5">
-                  {/* brand — only renders if API sends it */}
-                  {product.brand && (
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                      {product.brand}
-                    </p>
-                  )}
-                  <h2 className="mt-1 font-display text-base font-bold text-slate-900">
-                    {product.name}
-                  </h2>
-                  {product.description && (
-                    <p className="mt-1 text-sm text-slate-500">{product.description}</p>
-                  )}
-
-                  {/* price + buy row */}
-                  <div className="mt-4 flex items-center justify-between">
-                    {product.price && (
-                      <span className="font-display text-lg font-extrabold text-slate-900">
-                        ${product.price}
-                      </span>
-                    )}
-                    <a
-                      href={product.affiliate_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="rounded-full bg-amber-400 px-5 py-2 text-sm font-semibold text-slate-900 transition hover:bg-amber-500"
-                    >
-                      Buy now
-                    </a>
-                  </div>
-                </div>
-              </div>
+                product={product}
+                saved={isSaved(product)}
+                onToggleSave={handleSaveToggle}
+              />
             ))}
           </div>
         )}

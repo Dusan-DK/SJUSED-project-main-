@@ -12,12 +12,10 @@
 */
 
 export const PROFILE_OPTIONS = {
-  gender: ['female', 'male', 'other'],
+  gender: ['female', 'male'],
   style_archetype: ['oldMoney', 'streetwear', 'casual', 'elegant', 'minimalist'],
-  skin_type: ['oily', 'dry', 'combination', 'normal', 'sensitive'],
   budget: ['low', 'medium', 'high', 'premium'],
   age_range: ['<18', '18-24', '25-34', '35+'],
-  primary_interest: ['fashion', 'skincare', 'both'],
 };
 
 // style_archetype is a TEXT[] column — it takes an array, everything else a string.
@@ -107,6 +105,44 @@ export function validateProfileField(field, value) {
   }
 
   return { value };
+}
+
+/*
+  Used by POST /api/events. Only view and click come from the browser — save
+  and unsave are logged by the server itself when the heart changes, so a
+  client can't record a "save" that never happened.
+
+  Views arrive as a batch (one shortlist = up to 12 ids in one request).
+*/
+const CLIENT_EVENT_TYPES = ['view', 'click'];
+const EVENT_BATCH_MAX = 50;
+
+function isProductId(v) {
+  return Number.isInteger(v) && v > 0 && v <= 2147483647; // Postgres INTEGER
+}
+
+export function validateEvent(body) {
+  const { type, product_ids: ids } = body ?? {};
+
+  if (!CLIENT_EVENT_TYPES.includes(type)) {
+    return { error: `type must be one of: ${CLIENT_EVENT_TYPES.join(', ')}` };
+  }
+
+  if (!Array.isArray(ids) || ids.length === 0 || ids.length > EVENT_BATCH_MAX) {
+    return { error: `product_ids must be an array of 1–${EVENT_BATCH_MAX} ids` };
+  }
+
+  if (!ids.every(isProductId)) {
+    return { error: 'product_ids must be positive integers' };
+  }
+
+  return { value: { type, productIds: [...new Set(ids)] } };
+}
+
+// Route params are strings ("45"), so parse before checking.
+export function parseProductId(raw) {
+  const id = Number(raw);
+  return isProductId(id) ? id : null;
 }
 
 /*

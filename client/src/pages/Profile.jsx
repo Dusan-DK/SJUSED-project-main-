@@ -4,8 +4,8 @@ import { apiGet, apiSend } from '../lib/api';
 import { useAuth } from '../context/authContext';
 /*
   FIELDS as data. Each option is { value, label }:
-  - value → what's stored in DB (matches quiz contract exactly: oldMoney, other, etc.)
-  - label → what the user sees (Old money, Non-binary)
+  - value → what's stored in DB (matches quiz contract exactly: oldMoney, etc.)
+  - label → what the user sees (Old money)
   style_archetype is flagged multiSelect — it's a TEXT[] array and behaves
   differently from the single-value fields.
 */
@@ -16,7 +16,6 @@ const FIELDS = [
     options: [
       { value: 'female', label: 'Female' },
       { value: 'male', label: 'Male' },
-      { value: 'other', label: 'Non-binary' },
     ],
   },
   {
@@ -29,17 +28,6 @@ const FIELDS = [
       { value: 'casual', label: 'Casual' },
       { value: 'elegant', label: 'Elegant' },
       { value: 'minimalist', label: 'Minimalist' },
-    ],
-  },
-  {
-    id: 'skin_type',
-    label: 'Skin type',
-    options: [
-      { value: 'oily', label: 'Oily' },
-      { value: 'dry', label: 'Dry' },
-      { value: 'combination', label: 'Combination' },
-      { value: 'normal', label: 'Normal' },
-      { value: 'sensitive', label: 'Sensitive' },
     ],
   },
   {
@@ -62,15 +50,6 @@ const FIELDS = [
       { value: '35+', label: '35 and up' },
     ],
   },
-  {
-    id: 'primary_interest',
-    label: 'Interested in',
-    options: [
-      { value: 'fashion', label: 'Fashion' },
-      { value: 'skincare', label: 'Skincare' },
-      { value: 'both', label: 'Both' },
-    ],
-  },
 ];
 
 // Helper: turn a stored value into its display label.
@@ -87,7 +66,25 @@ function Profile() {
   const [saveError, setSaveError] = useState(null);
 
   const navigate = useNavigate();
-  const { logout } = useAuth();
+  const { logout, deleteAccount } = useAuth();
+
+  // Delete account: first click asks, second click deletes.
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
+
+  async function handleDeleteAccount() {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteAccount();
+      // replace: Back must not return to a profile that no longer exists.
+      navigate('/', { replace: true });
+    } catch (err) {
+      setDeleteError(err.message);
+      setDeleting(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -292,6 +289,55 @@ function Profile() {
           >
             Log out
           </button>
+        </div>
+
+        {/* ── DELETE ACCOUNT ──
+            Kept apart from the everyday buttons and in red, so it is never
+            pressed by accident while reaching for "Log out". */}
+        <div className="mt-16 rounded-2xl bg-white p-6 ring-1 ring-red-200">
+          <p className="font-display text-base font-bold text-slate-900">Delete account</p>
+          <p className="mt-1 text-sm text-slate-500">
+            Permanently deletes your account, avatar, quiz answers, liked products and activity.
+            This can't be undone.
+          </p>
+
+          {confirmingDelete ? (
+            <div className="mt-5">
+              <p className="text-sm font-semibold text-red-600">Are you sure? Everything will be gone.</p>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleDeleteAccount}
+                  disabled={deleting}
+                  className="rounded-full bg-red-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-300"
+                >
+                  {deleting ? 'Deleting…' : 'Yes, delete everything'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingDelete(false)}
+                  disabled={deleting}
+                  className="rounded-full px-6 py-2.5 text-sm font-semibold text-slate-700 ring-1 ring-slate-300 transition hover:bg-slate-100"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmingDelete(true)}
+              className="mt-5 rounded-full px-6 py-2.5 text-sm font-semibold text-red-600 ring-1 ring-red-300 transition hover:bg-red-50"
+            >
+              Delete my account
+            </button>
+          )}
+
+          {deleteError && (
+            <p className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
+              {deleteError}
+            </p>
+          )}
         </div>
 
       </div>

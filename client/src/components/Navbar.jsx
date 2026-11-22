@@ -32,6 +32,7 @@ export default function Navbar() {
         {loading ? null : user ? (
           <>
             <NavLink to="/avatar" className={linkActive}>Avatar</NavLink>
+            <NavLink to="/liked" className={linkActive}>Liked</NavLink>
             <NavLink to="/profile" className={linkActive}>Profile</NavLink>
           </>
         ) : (

@@ -1,7 +1,7 @@
 {
   "name": "web_app_sjused",
   "version": "1.0.0",
-  "description": "SJUSED — fashion and skincare recommendations driven by a style quiz.",
+  "description": "SJUSED — fashion recommendations driven by a style quiz.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

@@ -21,7 +21,6 @@ const questions = [
     options: [
       { value: 'female', label: 'Female' },
       { value: 'male', label: 'Male' },
-      { value: 'other', label: 'Non-binary' }, // value stays 'other' for your DB
     ],
   },
   {
@@ -35,18 +34,6 @@ const questions = [
       { value: 'casual', label: 'Casual', description: 'Easy, everyday, comfortable' },
       { value: 'elegant', label: 'Elegant', description: 'Polished, refined, sleek' },
       { value: 'minimalist', label: 'Minimalist', description: 'Clean lines, neutral, considered' },
-    ],
-  },
-  {
-    id: 'skin_type',
-    question: 'What is your skin type?',
-    subtitle: 'So skincare picks actually suit you.',
-    options: [
-      { value: 'oily', label: 'Oily' },
-      { value: 'dry', label: 'Dry' },
-      { value: 'combination', label: 'Combination' },
-      { value: 'normal', label: 'Normal' },
-      { value: 'sensitive', label: 'Sensitive' },
     ],
   },
   {
@@ -69,16 +56,6 @@ const questions = [
       { value: '18-24', label: '18–24' },
       { value: '25-34', label: '25–34' },
       { value: '35+', label: '35 and up' },
-    ],
-  },
-  {
-    id: 'primary_interest',
-    question: 'What are you most interested in?',
-    subtitle: 'You can always change this later.',
-    options: [
-      { value: 'fashion', label: 'Fashion' },
-      { value: 'skincare', label: 'Skincare' },
-      { value: 'both', label: 'A bit of both' },
     ],
   },
 ];
@@ -168,8 +145,8 @@ function Quiz() {
 
   /*
     No name anywhere — router state empty AND nothing in sessionStorage. Send
-    them back one screen to pick one, instead of letting them answer six
-    questions and hit a 400 at the very end (avatar_name is required by the API).
+    them back one screen to pick one, instead of letting them answer every
+    question and hit a 400 at the very end (avatar_name is required by the API).
   */
   if (!avatarName) {
     return <Navigate to="/avatar/name" replace />;

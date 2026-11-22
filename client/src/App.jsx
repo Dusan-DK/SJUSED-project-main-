@@ -6,6 +6,9 @@ import Quiz from './pages/Quiz';
 import Avatar from './pages/Avatar';
 import Products from './pages/Products';
 import Profile from './pages/Profile';
+import Liked from './pages/Liked';
+import Privacy from './pages/Privacy';
+import Footer from './components/Footer';
 import ProtectedRoute from './components/ProtectedRoute';
 import Navbar from './components/Navbar';
 import NameAvatar from './pages/NameAvatar';
@@ -30,7 +33,10 @@ function App() {
         <Route path="/quiz" element={<QuizRoute><Quiz /></QuizRoute>} />
         <Route path="/avatar" element={<ProtectedRoute><Avatar /></ProtectedRoute>} />
         <Route path="/products" element={<ProtectedRoute><Products /></ProtectedRoute>} />
+        <Route path="/liked" element={<ProtectedRoute><Liked /></ProtectedRoute>} />
         <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+        {/* No guard: the policy must be readable BEFORE someone signs up. */}
+        <Route path="/privacy" element={<Privacy />} />
 
         {/*
           Catch-all — must stay LAST; React Router picks the best match rather
@@ -40,6 +46,7 @@ function App() {
         */}
         <Route path="*" element={<NotFound />} />
       </Routes>
+    <Footer />
     </AuthProvider>
     </BrowserRouter>
   );

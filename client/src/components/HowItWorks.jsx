@@ -2,7 +2,7 @@ const STEPS = [
   {
     number: "01",
     title: "Take the style quiz",
-    description: "Six quick questions on style, skin, budget and age.",
+    description: "Four quick questions on who you are, style, budget and age.",
   },
   {
     number: "02",

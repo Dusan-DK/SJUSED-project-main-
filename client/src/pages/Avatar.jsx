@@ -17,15 +17,14 @@ import { apiGet } from '../lib/api';
 */
 const ZONES = {
   female : [
-    { id: 'hair',  label: 'Hair',  top: '7%', left: '39%', width: '20%', height: '8%' },
-    { id: 'face',  label: 'Face',  top: '16%', left: '40%', width: '19%', height: '14%' },
+    // Head spans what used to be two zones (hair 7–15% + face 16–30%).
+    { id: 'head',  label: 'Head',  top: '7%', left: '39%', width: '21%', height: '23%' },
     { id: 'torso', label: 'Top',   top: '37%', left: '31%', width: '40%', height: '25%' },
     { id: 'legs',  label: 'Legs',  top: '61%', left: '38%', width: '24%', height: '28%' },
     { id: 'feet',  label: 'Shoes', top: '89%', left: '40%', width: '19%', height: '10%' },
   ],
   male : [
-    { id: 'hair',  label: 'Hair',  top: '8%', left: '37%', width: '20%', height: '8%' },
-    { id: 'face',  label: 'Face',  top: '16%', left: '37%', width: '19%', height:'14%' },
+    { id: 'head',  label: 'Head',  top: '8%', left: '37%', width: '20%', height: '22%' },
     { id: 'torso', label: 'Top',   top: '35%', left: '27%', width:'40%', height:'25%' },
     { id: 'legs',  label:'Legs',  top:'60%', left:'34%', width:'25%', height: '29%' },
     { id: 'feet',  label: 'Shoes', top: '89%', left: '35%', width: '23%', height: '7%' },
@@ -33,11 +32,11 @@ const ZONES = {
 };
 
 /*
-  Which side of its zone the touch callout ("• Hair") sits on. Alternating keeps
+  Which side of its zone the touch callout ("• Head") sits on. Alternating keeps
   the labels from stacking in one column, and puts each one in the empty space
   beside the body instead of over the face or clothes. Same for both avatars.
 */
-const CALLOUT_SIDE = { hair: 'right', face: 'left', torso: 'right', legs: 'left', feet: 'right' };
+const CALLOUT_SIDE = { head: 'left', torso: 'right', legs: 'left', feet: 'right' };
 
 function Avatar() {
   const [profile, setProfile] = useState(null);
@@ -207,7 +206,7 @@ function Avatar() {
                 <span className="relative flex size-3">
                   <span
                     className="absolute size-full rounded-full bg-amber-400 opacity-75 motion-safe:animate-ping"
-                    // Staggered so the five dots ripple instead of blinking in unison.
+                    // Staggered so the dots ripple instead of blinking in unison.
                     style={{ animationDelay: `${i * 300}ms` }}
                   />
                   <span className="relative size-3 rounded-full bg-amber-500 ring-2 ring-white" />

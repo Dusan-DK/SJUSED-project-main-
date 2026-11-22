@@ -43,6 +43,16 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
+  /*
+    Unlike logout, this does NOT clear the user if the request fails: a
+    failed delete means the account still exists, and pretending otherwise
+    would show a logged-out navbar over a live account.
+  */
+  const deleteAccount = useCallback(async () => {
+    await apiSend('/api/account', 'DELETE');
+    setUser(null);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -64,8 +74,8 @@ export function AuthProvider({ children }) {
 
   // Memoised so consumers don't re-render just because the provider did.
   const value = useMemo(
-    () => ({ user, loading, refresh, logout }),
-    [user, loading, refresh, logout]
+    () => ({ user, loading, refresh, logout, deleteAccount }),
+    [user, loading, refresh, logout, deleteAccount]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

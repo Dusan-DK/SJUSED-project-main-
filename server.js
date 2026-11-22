@@ -11,7 +11,13 @@ import connectPgSimple from 'connect-pg-simple';
 import helmet from 'helmet';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { validateCredentials, validateProfileField, validateQuiz } from './validation.js';
+import {
+  validateCredentials,
+  validateProfileField,
+  validateQuiz,
+  validateEvent,
+  parseProductId,
+} from './validation.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -63,6 +69,19 @@ const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minút
   max: 10,                   // max 10 pokusov per IP
   message: { error: 'Too many attempts, try again later' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+/*
+  Tracking + hearts. Far looser than authLimiter — normal browsing sends a
+  view batch per tab and a request per heart — but it stops a script from
+  flooding product_events with fake clicks to game popularity later.
+*/
+const trackingLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minúta
+  max: 120,
+  message: { error: 'Too many requests, slow down' },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -127,6 +146,22 @@ app.get('/api/me', (req, res) => {
   }
 });
 
+/*
+  Recommendation dials. These are product decisions, not code — change a
+  number here and the ranking changes everywhere.
+
+  minScore 4 means: a product needs at least one matching style AND a budget
+  within one step (3+1), or two matching styles. One style with a budget two+
+  steps away (3+0) or a right budget with zero shared styles (0+3) is dropped.
+*/
+const SCORING = {
+  perMatchingStyle: 3, // each style the product shares with the user
+  budgetExact: 3,      // same budget tier
+  budgetOneStep: 1,    // neighbouring tier (low↔medium, high↔premium…)
+  minScore: 4,         // anything below is left out entirely
+  maxPicks: 12,        // the shortlist size
+};
+
 app.get('/api/recommendations', async (req, res) => {
   if (!req.isAuthenticated()) {
     return res.status(401).json({ error: 'Not logged in' });
@@ -136,8 +171,7 @@ app.get('/api/recommendations', async (req, res) => {
     const userId = req.user.id;
     const zone = req.query.zone;
     const zoneToCategory = {
-      face: ['skincare'],
-      hair: ['accessories'],
+      head: ['headwear'],
       torso: ['tops', 'dresses'],
       legs: ['bottoms', 'dresses'],
       feet: ['shoes']
@@ -157,21 +191,194 @@ app.get('/api/recommendations', async (req, res) => {
       return res.status(404).json({ error: 'No profile found' });
     }
 
-    const { gender, budget, style_archetype, skin_type } = profile.rows[0];
+    const { gender, budget, style_archetype } = profile.rows[0];
 
+    /*
+      SCORE, DON'T FILTER.
+      Only gender and category are hard rules (never show women's items to men,
+      never show shoes under Head). Everything else earns points, and the list
+      is sorted by them — so a near-perfect item one budget step off is ranked
+      lower instead of hidden, and the page is rarely empty.
+
+      Budgets are text, so budget_tiers turns them into 1–4; "steps away" is
+      then just the difference. A product with an unknown budget gets 0 budget
+      points (the CASE falls through on NULL) rather than being dropped.
+    */
     const products = await db.query(
-      `SELECT * FROM products 
-       WHERE (gender = $1 OR gender = 'unisex')
-       AND budget_range = $2
-       AND category = ANY($3)
-       AND style_archetype && $4
-       AND (skin_type IS NULL OR $5 = ANY(skin_type))`,
-      [gender, budget, category, style_archetype, skin_type]
+      `WITH budget_tiers(name, tier) AS (
+         VALUES ('low', 1), ('medium', 2), ('high', 3), ('premium', 4)
+       ),
+       scored AS (
+         SELECT p.*,
+           cardinality(ARRAY(
+             SELECT unnest(p.style_archetype)
+             INTERSECT
+             SELECT unnest($4::text[])
+           )) * $5::int
+           + CASE abs(pt.tier - ut.tier)
+               WHEN 0 THEN $6::int
+               WHEN 1 THEN $7::int
+               ELSE 0
+             END AS score
+         FROM products p
+         LEFT JOIN budget_tiers pt ON pt.name = p.budget_range
+         LEFT JOIN budget_tiers ut ON ut.name = $2
+         WHERE (p.gender = $1 OR p.gender = 'unisex')
+           AND p.category = ANY($3)
+       )
+       SELECT scored.*,
+         -- So the ♡ shows filled for items this user already saved.
+         EXISTS (
+           SELECT 1 FROM saved_products s
+           WHERE s.user_id = $10 AND s.product_id = scored.id
+         ) AS saved
+       FROM scored
+       WHERE score >= $8::int
+       ORDER BY score DESC, created_at DESC
+       LIMIT $9::int`,
+      [
+        gender, budget, category, style_archetype,
+        SCORING.perMatchingStyle,
+        SCORING.budgetExact,
+        SCORING.budgetOneStep,
+        SCORING.minScore,
+        SCORING.maxPicks,
+        userId,
+      ]
     );
 
     res.json(products.rows);
   } catch (err) {
     console.log(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/*
+  POST /api/events — { type: 'view' | 'click', product_ids: [1, 2, …] }
+
+  Fire-and-forget from the browser: it never waits on this, so a failure here
+  must not break shopping. Unknown product ids are skipped by the SELECT
+  (instead of failing the whole batch on the foreign key), so a product deleted
+  while someone had the page open doesn't turn into a 500.
+*/
+app.post('/api/events', trackingLimiter, async (req, res) => {
+  if (!req.isAuthenticated()) {
+    return res.status(401).json({ error: 'Not logged in' });
+  }
+
+  const check = validateEvent(req.body);
+  if (check.error) {
+    return res.status(400).json({ error: check.error });
+  }
+  const { type, productIds } = check.value;
+
+  try {
+    await db.query(
+      `INSERT INTO product_events (user_id, product_id, type)
+       SELECT $1, id, $3 FROM products WHERE id = ANY($2::int[])`,
+      [req.user.id, productIds, type]
+    );
+    res.status(204).end();
+  } catch (err) {
+    console.error('POST /api/events failed:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/*
+  PUT /api/saved/:productId    → heart it
+  DELETE /api/saved/:productId → un-heart it
+
+  PUT/DELETE rather than one "toggle" endpoint: they are idempotent, so a
+  double-click or a retried request lands in the same state instead of
+  flipping it back. The save/unsave EVENT is only logged when the state really
+  changed, so repeated clicks don't inflate the numbers.
+*/
+// GET /api/saved — the Liked page. Newest heart first.
+app.get('/api/saved', async (req, res) => {
+  if (!req.isAuthenticated()) {
+    return res.status(401).json({ error: 'Not logged in' });
+  }
+
+  try {
+    const saved = await db.query(
+      `SELECT p.*, true AS saved
+       FROM saved_products s
+       JOIN products p ON p.id = s.product_id
+       WHERE s.user_id = $1
+       ORDER BY s.created_at DESC`,
+      [req.user.id]
+    );
+    res.json(saved.rows);
+  } catch (err) {
+    console.error('GET /api/saved failed:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.put('/api/saved/:productId', trackingLimiter, async (req, res) => {
+  if (!req.isAuthenticated()) {
+    return res.status(401).json({ error: 'Not logged in' });
+  }
+
+  const productId = parseProductId(req.params.productId);
+  if (!productId) {
+    return res.status(400).json({ error: 'Invalid product id' });
+  }
+
+  try {
+    const product = await db.query('SELECT 1 FROM products WHERE id = $1', [productId]);
+    if (product.rows.length === 0) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    const inserted = await db.query(
+      `INSERT INTO saved_products (user_id, product_id) VALUES ($1, $2)
+       ON CONFLICT DO NOTHING`,
+      [req.user.id, productId]
+    );
+
+    if (inserted.rowCount === 1) {
+      await db.query(
+        `INSERT INTO product_events (user_id, product_id, type) VALUES ($1, $2, 'save')`,
+        [req.user.id, productId]
+      );
+    }
+
+    res.status(204).end();
+  } catch (err) {
+    console.error('PUT /api/saved failed:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.delete('/api/saved/:productId', trackingLimiter, async (req, res) => {
+  if (!req.isAuthenticated()) {
+    return res.status(401).json({ error: 'Not logged in' });
+  }
+
+  const productId = parseProductId(req.params.productId);
+  if (!productId) {
+    return res.status(400).json({ error: 'Invalid product id' });
+  }
+
+  try {
+    const deleted = await db.query(
+      'DELETE FROM saved_products WHERE user_id = $1 AND product_id = $2',
+      [req.user.id, productId]
+    );
+
+    if (deleted.rowCount === 1) {
+      await db.query(
+        `INSERT INTO product_events (user_id, product_id, type) VALUES ($1, $2, 'unsave')`,
+        [req.user.id, productId]
+      );
+    }
+
+    res.status(204).end();
+  } catch (err) {
+    console.error('DELETE /api/saved failed:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -256,7 +463,7 @@ app.patch('/api/profile', async (req, res) => {
   /*
     The field NAME was already whitelisted (which is what keeps the interpolated
     `SET ${field}` safe), but the VALUE was not — any string at all could be
-    written into budget, gender, skin_type… and then silently break
+    written into budget, gender, age_range… and then silently break
     /api/recommendations, which filters on exactly these values.
   */
   const check = validateProfileField(field, value);
@@ -296,23 +503,21 @@ app.post('/api/quiz', async (req, res) => {
     return res.status(400).json({ error: check.error });
   }
 
-  const { gender, style_archetype, skin_type, budget, age_range, primary_interest, avatar_name } = check.value;
+  const { gender, style_archetype, budget, age_range, avatar_name } = check.value;
   const userId = req.user.id;
 
   try {
     await db.query(
-  `INSERT INTO quiz_profiles 
-   (user_id, gender, style_archetype, skin_type, budget, age_range, primary_interest, avatar_name)
-   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+  `INSERT INTO quiz_profiles
+   (user_id, gender, style_archetype, budget, age_range, avatar_name)
+   VALUES ($1, $2, $3, $4, $5, $6)
    ON CONFLICT (user_id) DO UPDATE SET
      gender = EXCLUDED.gender,
      style_archetype = EXCLUDED.style_archetype,
-     skin_type = EXCLUDED.skin_type,
      budget = EXCLUDED.budget,
      age_range = EXCLUDED.age_range,
-     primary_interest = EXCLUDED.primary_interest,
      avatar_name = EXCLUDED.avatar_name`,
-  [userId, gender, style_archetype, skin_type, budget, age_range, primary_interest, avatar_name]
+  [userId, gender, style_archetype, budget, age_range, avatar_name]
 );
     res.json({ success: true });
   } catch (err) {
@@ -386,6 +591,56 @@ app.post('/api/logout', (req, res) => {
   req.logout(function(err) {
     if (err) return res.status(500).json({ error: 'Logout failed' });
     res.json({ success: true });
+  });
+});
+
+/*
+  DELETE /api/account — the GDPR "right to erasure", self-service.
+
+  One DELETE on users removes everything, because every table that points at
+  a user cascades (quiz_profiles since 004; product_events and saved_products
+  since 003). Then every session of this user — other phones and browsers
+  too — is removed, and this one is destroyed with its cookie cleared.
+
+  Same transaction for both, so a failure can't leave an account deleted but
+  still logged in somewhere, or sessions wiped but the account still there.
+
+  CSRF: the session cookie is SameSite=lax, so a cross-site DELETE never
+  carries it — another website can't trigger this for a logged-in visitor.
+*/
+app.delete('/api/account', async (req, res) => {
+  if (!req.isAuthenticated()) {
+    return res.status(401).json({ error: 'Not logged in' });
+  }
+
+  const userId = req.user.id;
+  const client = await db.connect();
+
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM users WHERE id = $1', [userId]);
+    // connect-pg-simple stores the session as JSON; passport puts the id in
+    // sess.passport.user (see serializeUser).
+    await client.query(
+      `DELETE FROM session WHERE sess->'passport'->>'user' = $1`,
+      [String(userId)]
+    );
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('DELETE /api/account failed:', err);
+    return res.status(500).json({ error: 'Could not delete your account. Please try again.' });
+  } finally {
+    client.release();
+  }
+
+  // The session row is already gone from the DB; this clears it in memory
+  // and tells the browser to drop the cookie.
+  req.logout(() => {
+    req.session.destroy(() => {
+      res.clearCookie('connect.sid');
+      res.status(204).end();
+    });
   });
 });
 
