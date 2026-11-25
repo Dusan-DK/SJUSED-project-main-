@@ -1,0 +1,44 @@
+# Render Blueprint: describes the whole deployment, so Render can create the
+# web service and the database in one go (Dashboard → New → Blueprint).
+
+services:
+  - type: web
+    name: sjused
+    runtime: node
+    region: frankfurt # EU, matches the privacy policy
+    plan: free        # free web services sleep after ~15 min idle; upgrade for real traffic
+    # Root deps, then the client build. `build` installs client devDependencies
+    # explicitly because NODE_ENV=production would otherwise skip Vite.
+    buildCommand: npm install && npm run build
+    # Applies any new migrations on every deploy, then starts the server.
+    startCommand: npm run start:prod
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: sjused-db
+          property: connectionString
+      - key: SESSION_SECRET
+        generateValue: true
+      # Your public address, e.g. https://sjused.onrender.com (or your own
+      # domain). One service serves both, so these two are the same value.
+      - key: FRONTEND_URL
+        sync: false
+      - key: BACKEND_URL
+        sync: false
+      # Google login credentials (Google Cloud Console → OAuth client).
+      - key: CLIENTID
+        sync: false
+      - key: CLIENTSECRET
+        sync: false
+
+databases:
+  - name: sjused-db
+    region: frankfurt
+    # Render's FREE Postgres is deleted after ~30 days, which would wipe all
+    # your users. Use a paid plan for anything real (check the current plan
+    # name and price in the dashboard).
+    plan: basic-256mb
